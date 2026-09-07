@@ -153,9 +153,10 @@ def _try_send(serial: str, esc: str) -> tuple[bool, str]:
     return (False, out)
 
 
-def send_chunk(serial: str, part: str, log, tag: str) -> tuple[bool, str, str]:
+def send_chunk(serial: str, part: str, log, tag: str, dropped_acc=None) -> tuple[bool, str, str]:
     """Kirim 1 potong teks mentah. Return (ok, reason, detail).
-    Retry 3x utk gagal sesaat; kalau NPE karena karakter aneh -> sanitasi + coba lagi."""
+    Retry 3x utk gagal sesaat; kalau NPE karena karakter aneh -> sanitasi + coba lagi.
+    Karakter yg dibuang dikumpulkan ke dropped_acc (kalau disediakan)."""
     esc = escape_for_input(part)
     last = ""
     for attempt in (1, 2, 3):
@@ -182,6 +183,8 @@ def send_chunk(serial: str, part: str, log, tag: str) -> tuple[bool, str, str]:
     if dropped:
         shown = "".join(dict.fromkeys(dropped))  # unik, urut kemunculan
         log(f"[sanitasi] chunk {tag}: dibuang/diganti {len(dropped)} char: {shown!r}")
+        if dropped_acc is not None:
+            dropped_acc.extend(dropped)
     if not clean.strip():
         return (False, "badchar",
                 "chunk hanya berisi karakter yg tidak bisa diketik via ADB "
@@ -193,11 +196,14 @@ def send_chunk(serial: str, part: str, log, tag: str) -> tuple[bool, str, str]:
     return (False, classify_error(out), out)
 
 
-def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str, str]:
-    # Pecah per baris agar Enter rapi, lalu chunk per baris
+def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str, str, list]:
+    # Pecah per baris agar Enter rapi, lalu chunk per baris.
+    # Return (ok, reason, detail, dropped_emoji) — dropped_emoji = semua char
+    # yg terpaksa dibuang karena tak bisa diketik ADB (perlu ditambah manual).
+    dropped_all: list[str] = []
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if not lines:
-        return (True, "", "")
+        return (True, "", "", dropped_all)
     for li, line in enumerate(lines):
         # baris kosong = tekan enter saja
         if line == "":
@@ -206,17 +212,17 @@ def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str,
                 ok, out = run([ADB, "-s", serial, "shell", "input", "keyevent", "66"])
             log(f"[enter] {out}" if out else "[enter] OK")
             if not ok:
-                return (False, classify_error(out), out)
+                return (False, classify_error(out), out, dropped_all)
             continue
         # chunk teks panjang
         for i in range(0, len(line), CHUNK_SIZE):
             part = line[i:i + CHUNK_SIZE]
             if part.strip():
                 # kirim via send_chunk (escape + retry + sanitasi otomatis)
-                ok, reason, detail = send_chunk(serial, part, log, f"{i}-{i+len(part)}")
+                ok, reason, detail = send_chunk(serial, part, log, f"{i}-{i+len(part)}", dropped_all)
                 log(f"[ketik {i}-{i+len(part)}] {'OK' if ok else 'GAGAL (' + reason + '): ' + detail}")
                 if not ok:
-                    return (False, reason, detail)
+                    return (False, reason, detail, dropped_all)
         # ganti baris -> tekan enter (kecuali baris terakhir tanpa send_enter)
         is_last = (li == len(lines) - 1)
         if (not is_last) or send_enter:
@@ -226,7 +232,7 @@ def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str,
                     ok, out = run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "66"])
                     if not ok:
                         run([ADB, "-s", serial, "shell", "input", "keyevent", "66"])
-    return (True, "", "")
+    return (True, "", "", dropped_all)
 
 
 # ============================== HTP (HP -> PC) ==============================
@@ -405,9 +411,20 @@ class PthTab(ttk.Frame):
                 "4. Cek popup 'Allow USB debugging?' di HP -> Allow"
             )
             return
-        ok, reason, detail = send_text(serial, text, self.log, self.var_enter.get())
+        ok, reason, detail, dropped = send_text(serial, text, self.log, self.var_enter.get())
         if ok:
             self.log("✅ Selesai.")
+            if dropped:
+                uniq = "".join(dict.fromkeys(dropped))
+                self.log(f"⚠️ {len(dropped)} char tak bisa diketik ADB (dibuang): {uniq!r}")
+                messagebox.showwarning(
+                    "Terkirim tanpa emoji",
+                    f"Teks sudah masuk HP, tapi {len(dropped)} karakter tidak bisa "
+                    f"diketik otomatis via ADB (keterbatasan Android, bukan bug):\n{uniq}\n\n"
+                    "Tambahkan manual di HP — biasanya sudah ada di recent emoji GBoard.\n\n"
+                    "Satu-satunya cara full-otomatis adalah keyboard khusus ADB "
+                    "(bisa gonta-ganti dengan GBoard kapan saja)."
+                )
             return
         self.log(f"❌ Gagal ({reason}). Detail asli dari HP: {detail}")
         if reason == "security":
