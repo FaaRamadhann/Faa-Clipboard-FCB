@@ -18,6 +18,11 @@ import re
 import struct
 import time
 
+try:
+    from translate import translate_aliases
+except ImportError:  # translate.py tidak sefolder -> perilaku lama (buang)
+    translate_aliases = None
+
 ADB = "adb"
 CHUNK_SIZE = 400  # aman untuk `input text`, jangan >500
 
@@ -178,7 +183,11 @@ def send_chunk(serial: str, part: str, log, tag: str, dropped_acc=None) -> tuple
     else:
         # habis 3x retry masih gagal (bukan badchar) -> nyerah
         return (False, classify_error(last), last)
-    # --- jalur sanitasi: transliterasi + buang karakter tak terkirim ---
+    # --- jalur sanitasi: alias translate.py dulu, baru transliterasi+buang ---
+    if translate_aliases is not None:
+        part, replaced = translate_aliases(part)
+        for emo, alias in replaced:
+            log(f"[translate] chunk {tag}: {emo!r} -> {alias}")
     clean, dropped = sanitize_for_keymap(part)
     if dropped:
         shown = "".join(dict.fromkeys(dropped))  # unik, urut kemunculan
@@ -611,6 +620,9 @@ TAB PTH (PC -> HP)
 4. Kutip " dan ' aman terkirim utuh.
 5. Emoji / karakter aneh otomatis disanitasi (kutip lengkung
    diluruskan, emoji dibuang) — detailnya ada di log tab ini.
+6. Punya translate.py sefolder? Emoji yg ada di kamusnya diubah
+   jadi teks alias dulu (mis. 🩵 -> [hati biru]), bukan dibuang.
+   Tambah alias sendiri langsung di file translate.py.
 
 TAB HTP (HP -> PC)
 ------------------
