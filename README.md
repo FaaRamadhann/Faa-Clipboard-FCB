@@ -10,8 +10,6 @@ Copy-paste dua arah antara PC (Windows) dan HP (Android) via ADB. Tanpa aplikasi
   - Kutip `"`, `'` terkirim utuh (POSIX shell escaping)
   - Teks panjang auto-split 400 char, support multi-baris + Enter
   - Emoji / kutip lengkung / karakter aneh otomatis disanitasi + dilaporkan di log
-  - Emoji yg ada di kamus `translate.py` diubah jadi teks alias dulu
-    (mis. 🩵 → `[hati biru]`), bukan dibuang — tambah alias sendiri di file itu
   - Retry 3x untuk gagal sesaat + klasifikasi error yang jujur (`security` / `connection` / `badchar` / `other`)
 - **Tab HTP (HP → PC)** — baca clipboard HP via `service call clipboard 4` (`getPrimaryClip`)
   - Hasil otomatis masuk clipboard PC, tinggal `Ctrl+V`
@@ -77,20 +75,6 @@ Yang biasa diubah:
 2. Klik **Ambil dari HP** — teks masuk clipboard PC, tinggal `Ctrl+V`.
 3. Atau centang **Auto-monitor HP** untuk sinkron otomatis.
 
-### Kamus alias emoji (`translate.py`)
-
-ADB tidak bisa mengetik emoji (keterbatasan Android). Agar maknanya tidak
-hilang, emoji yg ada di kamus otomatis diubah jadi teks sebelum dikirim
-(mis. 🩵 → `[hati biru]`). Emoji tanpa alias tetap dibuang + dilaporkan di log.
-
-Tambah alias sendiri: edit `EMOJI_ALIASES` di `translate.py`, misal:
-
-```python
-"\U0001F600": "[senyum]",
-```
-
-Cek cepat: `python translate.py`.
-
 ## Arti error (tab PTH)
 
 | Pesan | Artinya | Solusi |
@@ -105,11 +89,10 @@ Cek cepat: `python translate.py`.
 
 ```
 FCB/
-├── fcc.py        # aplikasi utama (PTH + HTP + Manual, satu file)
-├── translate.py  # kamus alias emoji -> teks (dibaca otomatis saat kirim)
-├── fcb.vbs       # launcher Windows tanpa jendela cmd (double-click)
+├── fcc.py       # aplikasi utama (PTH + HTP + Manual, satu file)
+├── fcb.vbs      # launcher Windows tanpa jendela cmd (double-click)
 ├── README.md
-├── LICENSE       # MIT
+├── LICENSE      # MIT
 └── .gitignore
 ```
 
