@@ -10,6 +10,8 @@ Copy-paste dua arah antara PC (Windows) dan HP (Android) via ADB. Tanpa aplikasi
   - Kutip `"`, `'` terkirim utuh (POSIX shell escaping)
   - Teks panjang auto-split 400 char, support multi-baris + Enter
   - Emoji / kutip lengkung / karakter aneh otomatis disanitasi + dilaporkan di log
+  - Teks ber-emoji otomatis via APK helper (kalau terinstall, lihat bawah):
+    clipboard HP + tombol PASTE, unicode 100% utuh, GBoard tetap
   - Retry 3x untuk gagal sesaat + klasifikasi error yang jujur (`security` / `connection` / `badchar` / `other`)
 - **Tab HTP (HP → PC)** — baca clipboard HP via `service call clipboard 4` (`getPrimaryClip`)
   - Hasil otomatis masuk clipboard PC, tinggal `Ctrl+V`
@@ -63,6 +65,21 @@ Yang biasa diubah:
 - **Lihat console untuk debug** — ganti `pythonw` menjadi `python` dan `0, False` menjadi `1, True` agar jendela console tampil dan error terlihat.
 - **Arti `0, False`** — `0` = jalan tersembunyi (tanpa kedip cmd), `False` = tidak menunggu aplikasi ditutup.
 
+### APK helper (opsional, emoji full-otomatis)
+
+ADB tidak bisa mengetik emoji (keterbatasan Android). APK mini di folder
+`fcb-helper/` (8 KB, source Java disertakan) menerima teks via broadcast
+lalu menaruhnya ke clipboard HP lewat Java API (unicode utuh),
+disusul tombol PASTE otomatis. GBoard tidak berubah sama sekali.
+
+1. Install: `adb install fcb-helper/fcb-helper.apk`
+   (atau build sendiri: jalankan `build.bat` di folder itu —
+   butuh JDK + Android SDK build-tools).
+2. Buka aplikasi "FCB Helper" di HP **sekali** (agar broadcast jalan).
+3. Tab PTH otomatis pakai mode helper kalau teks mengandung emoji
+   dan APK terdeteksi. Tanpa APK: teks tetap terkirim minus emoji
+   (dilaporkan di log + dialog).
+
 ### Tab PTH (PC → HP)
 
 1. Di HP: tap kolom teks sampai keyboard GBoard muncul (kursor aktif).
@@ -90,6 +107,11 @@ Yang biasa diubah:
 ```
 FCB/
 ├── fcc.py       # aplikasi utama (PTH + HTP + Manual, satu file)
+├── fcb-helper/  # source + APK helper (emoji via broadcast + PASTE)
+│   ├── AndroidManifest.xml
+│   ├── build.bat
+│   ├── fcb-helper.apk
+│   └── src/com/faa/fcbclip/*.java
 ├── fcb.vbs      # launcher Windows tanpa jendela cmd (double-click)
 ├── README.md
 ├── LICENSE      # MIT

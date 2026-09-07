@@ -235,6 +235,59 @@ def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str,
     return (True, "", "", dropped_all)
 
 
+# ================= mode helper (APK com.faa.fcbclip) =================
+# Untuk teks ber-emoji: taruh utuh ke clipboard HP via broadcast Java API
+# (unicode 100% utuh, tanpa KeyCharacterMap), lalu tekan tombol PASTE.
+# GBoard tidak berubah sama sekali.
+
+HELPER_PKG = "com.faa.fcbclip"
+HELPER_ACTION = "com.faa.fcbclip.SET"
+HELPER_CMP = "com.faa.fcbclip/.ClipReceiver"
+HELPER_SLICE = 2000  # char per broadcast (aman untuk limit argumen shell)
+
+
+def _needs_helper(text: str) -> bool:
+    """True kalau ada char yg pasti dibuang sanitasi (di luar ASCII printable)."""
+    return any(not (ch in ("\t", "\n") or 0x20 <= ord(ch) <= 0x7E) for ch in text)
+
+
+def helper_available(serial: str) -> bool:
+    ok, out = run([ADB, "-s", serial, "shell", "pm", "path", HELPER_PKG])
+    return ok and "package:" in out
+
+
+def _quote_shell(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def helper_paste(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str, str]:
+    """Kirim teks utuh (emoji ok) via APK helper + tombol PASTE per potong."""
+    parts = [text[i:i + HELPER_SLICE] for i in range(0, len(text), HELPER_SLICE)] or [""]
+    for pi, part in enumerate(parts):
+        if not part.strip():
+            continue
+        ok, out = run([ADB, "-s", serial, "shell", "am", "broadcast",
+                       "-a", HELPER_ACTION, "-n", HELPER_CMP,
+                       "-e", "text", _quote_shell(part)])
+        if not ok or "FCB-OK" not in out:
+            return (False, "helper-set",
+                    "APK helper tidak merespon (FCB-OK tidak ada). "
+                    "Pastikan APK terinstall + app pernah dibuka sekali. "
+                    f"Respon: {(out or '(kosong)')[:200]}")
+        log(f"[helper {pi + 1}/{len(parts)}] clipboard HP terisi, tekan PASTE...")
+        ok, out = run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "279"])
+        if not ok or "Exception" in out or "Error" in out:
+            ok, out = run([ADB, "-s", serial, "shell", "input", "keyevent", "279"])
+        if not ok or "Exception" in out or "Error" in out:
+            return (False, "helper-paste",
+                    "teks SUDAH di clipboard HP, tapi tombol PASTE gagal — "
+                    "tempel manual sekali di HP (tap tahan -> Paste).")
+        log(f"[helper {pi + 1}/{len(parts)}] OK")
+    if send_enter:
+        run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "66"])
+    return (True, "", "")
+
+
 # ============================== HTP (HP -> PC) ==============================
 
 def _parcel_bytes(parcel: str) -> bytes:
@@ -411,6 +464,18 @@ class PthTab(ttk.Frame):
                 "4. Cek popup 'Allow USB debugging?' di HP -> Allow"
             )
             return
+        # mode helper: teks ber-emoji + APK ada -> kirim utuh (tanpa ketik)
+        if _needs_helper(text) and helper_available(serial):
+            self.log("Mode helper (emoji terdeteksi, APK tersedia)...")
+            ok, reason, detail = helper_paste(serial, text, self.log, self.var_enter.get())
+            if ok:
+                self.log("✅ Selesai via helper (emoji utuh).")
+                return
+            if reason == "helper-paste":
+                self.log(f"⚠️ {detail}")
+                messagebox.showinfo("Sudah di clipboard HP", detail)
+                return
+            self.log(f"⚠️ mode helper gagal ({reason}), lanjut mode ketik biasa...")
         ok, reason, detail, dropped = send_text(serial, text, self.log, self.var_enter.get())
         if ok:
             self.log("✅ Selesai.")
@@ -422,8 +487,8 @@ class PthTab(ttk.Frame):
                     f"Teks sudah masuk HP, tapi {len(dropped)} karakter tidak bisa "
                     f"diketik otomatis via ADB (keterbatasan Android, bukan bug):\n{uniq}\n\n"
                     "Tambahkan manual di HP — biasanya sudah ada di recent emoji GBoard.\n\n"
-                    "Satu-satunya cara full-otomatis adalah keyboard khusus ADB "
-                    "(bisa gonta-ganti dengan GBoard kapan saja)."
+                    "Mau full-otomatis? Install APK helper FCB "
+                    "(lihat tab Manual) agar emoji terkirim utuh."
                 )
             return
         self.log(f"❌ Gagal ({reason}). Detail asli dari HP: {detail}")
@@ -449,6 +514,8 @@ class PthTab(ttk.Frame):
             )
         elif reason == "adb-missing":
             messagebox.showerror("ADB hilang", detail)
+        elif reason == "helper-set":
+            messagebox.showerror("APK helper tidak merespon", detail)
         elif reason == "badchar":
             messagebox.showwarning(
                 "Ada karakter yg tidak bisa diketik",
@@ -611,6 +678,8 @@ TAB PTH (PC -> HP)
 4. Kutip " dan ' aman terkirim utuh.
 5. Emoji / karakter aneh otomatis disanitasi (kutip lengkung
    diluruskan, emoji dibuang) — detailnya ada di log tab ini.
+6. Punya emoji? Install APK helper (poin APK HELPER di bawah),
+   maka teks ber-emoji otomatis dikirim utuh. GBoard tetap.
 
 TAB HTP (HP -> PC)
 ------------------
@@ -619,6 +688,21 @@ TAB HTP (HP -> PC)
    clipboard PC — tinggal Ctrl+V di mana saja.
 3. Atau centang 'Auto-monitor HP' agar tiap ada copy-an baru
    di HP langsung masuk clipboard PC tiap 2 detik.
+
+APK HELPER FCB (opsional, untuk emoji full-otomatis)
+---------------------------------------------------
+ADB tidak bisa mengetik emoji (keterbatasan Android). APK mini ini
+(8 KB, source di folder fcb-helper) menerima teks via broadcast
+lalu menaruhnya ke clipboard HP lewat Java API (unicode 100% utuh),
+disusul tombol PASTE otomatis. GBoard tidak berubah sama sekali.
+
+1. Install: `adb install fcb-helper/build/fcb-helper.apk`
+   (atau build sendiri: jalankan `build.bat` di folder fcb-helper —
+   butuh JDK + Android SDK build-tools).
+2. Buka aplikasi "FCB Helper" di HP SEKALI (agar broadcast jalan).
+3. Tab PTH otomatis pakai mode helper kalau teks mengandung emoji
+   dan APK terdeteksi. Tanpa APK: teks tetap terkirim minus emoji
+   (dilaporkan di log + dialog).
 
 ARTI ERROR (TAB PTH)
 --------------------
