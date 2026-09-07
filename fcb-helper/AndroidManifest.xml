@@ -1,19 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.faa.fcbclip"
-    android:versionCode="1"
-    android:versionName="1.0">
+    android:versionCode="2"
+    android:versionName="1.1">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
+    <!-- TANPA launcher icon: helper saja. Dibuka via Settings > Apps kalau perlu.
+         Broadcast receiver di bawah tetap aktif normal. -->
     <application android:label="FCB Helper"
         android:theme="@android:style/Theme.Material.Light">
-        <activity android:name=".MainActivity" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+        <activity android:name=".MainActivity" android:exported="true" />
         <receiver android:name=".ClipReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="com.faa.fcbclip.SET" />
