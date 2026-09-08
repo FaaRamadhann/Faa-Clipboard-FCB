@@ -75,7 +75,11 @@ disusul tombol PASTE otomatis. GBoard tidak berubah sama sekali.
 1. Install: `adb install fcb-helper/fcb-helper.apk`
    (atau build sendiri: jalankan `build.bat` di folder itu —
    butuh JDK + Android SDK build-tools).
-2. Buka aplikasi "FCB Helper" di HP **sekali** (agar broadcast jalan).
+2. Buka aplikasi "FCB Helper" di HP: cek status izin, tap
+   **Grant via Root** (HP root, popup Superuser) atau **Buka Settings**
+   (non-root, aktifkan izin clipboard manual).
+   Tanpa izin ini, paste emoji gagal diam-diam (MIUI membatasi tulis
+   clipboard ke foreground-only).
 3. Tab PTH otomatis pakai mode helper kalau teks mengandung emoji
    dan APK terdeteksi. Tanpa APK: teks tetap terkirim minus emoji
    (dilaporkan di log + dialog).
