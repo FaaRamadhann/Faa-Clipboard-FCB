@@ -95,9 +95,12 @@ Mode root tidak butuh APK helper dan tidak butuh izin apa pun
    di pengaturan Superuser Magisk).
 3. Paste teks ber-emoji seperti biasa — sisanya otomatis.
 
-Dropdown **Mode** di tab PTH: Otomatis (cascade di atas), atau paksa
-Module (root) / Helper APK / Ketik. Mode paksa yang gagal otomatis
-turun ke mode berikut sambil dicatat di log.
+Dropdown **Mode** di tab PTH (2 pilihan):
+- Module (root): era module Magisk + manager `com.faa.fcbmod`.
+  faacb-root dulu, lalu helper APK, lalu ketik.
+- Helper APK: non-root era APK default `com.faa.fcbclip`.
+  helper APK, lalu ketik.
+Gagal di mode pilihan = turun otomatis sambil dicatat di log.
 
 ### Tab PTH (PC → HP)
 

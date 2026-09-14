@@ -474,9 +474,8 @@ class PthTab(ttk.Frame):
         ttk.Checkbutton(mid, text="Pakai Clipboard PC", variable=self.var_clip).pack(side="left", padx=10)
         ttk.Label(mid, text="Mode:").pack(side="left", padx=(10, 2))
         self.cb_mode = ttk.Combobox(mid, state="readonly", width=14,
-                                    values=["Otomatis", "Module (root)",
-                                            "Helper APK", "Ketik"])
-        self.cb_mode.set("Otomatis")
+                                    values=["Module (root)", "Helper APK"])
+        self.cb_mode.set("Module (root)")
         self.cb_mode.pack(side="left")
 
         btns = ttk.Frame(self, padding=10)
@@ -565,21 +564,21 @@ class PthTab(ttk.Frame):
             return
         trail: list[str] = []  # jejak mode yg gagal, utk dialog akhir
         mode = self.cb_mode.get()
-        if mode == "Ketik":
-            use_faacb = use_helper = False
-        else:
-            need = _needs_helper(text)
-            use_faacb = (mode == "Module (root)"
-                         or (mode == "Otomatis" and need)) \
-                and has_root(serial) and has_faacb(serial)
-            use_helper = (mode == "Helper APK"
-                          or (mode == "Otomatis" and need)) \
-                and helper_available(serial)
-            if mode == "Module (root)" and not use_faacb:
-                self.log("⚠️ Mode Module dipilih tapi root/module tak tersedia, turun mode...")
+        if mode == "Module (root)":
+            # 1. module version (Magisk + manager com.faa.fcbmod era):
+            #    faacb-root dulu, lalu helper APK, lalu ketik.
+            use_faacb = has_root(serial) and has_faacb(serial)
+            use_helper = helper_available(serial)
+            if not use_faacb:
+                self.log("⚠️ Mode Module: root/module tak tersedia, turun mode...")
                 trail.append("faacb-root (tak tersedia)")
-            if mode == "Helper APK" and not use_helper:
-                self.log("⚠️ Mode Helper dipilih tapi APK tak terinstall, turun mode...")
+        else:
+            # 2. non-root version (APK default com.faa.fcbclip):
+            #    helper APK, lalu ketik.
+            use_faacb = False
+            use_helper = helper_available(serial)
+            if not use_helper:
+                self.log("⚠️ Mode Helper: APK tak terinstall, pakai ketik biasa...")
                 trail.append("helper-APK (tak tersedia)")
         # mode faacb-root: tercepat + terkuat (butuh root + module).
         if use_faacb:
@@ -811,10 +810,12 @@ TAB PTH (PC -> HP)
    diluruskan, emoji dibuang) — detailnya ada di log tab ini.
 6. Punya emoji? Install APK helper (poin APK HELPER di bawah),
    maka teks ber-emoji otomatis dikirim utuh. GBoard tetap.
-7. Dropdown Mode: Otomatis (pilih jalur sendiri: faacb-root dulu,
-   lalu helper APK, lalu ketik), atau paksa Module (root) /
-   Helper APK / Ketik. Gagal di mode paksa = turun otomatis
-   sambil dicatat di log.
+7. Dropdown Mode (2 pilihan):
+   - Module (root): era module Magisk + manager com.faa.fcbmod.
+     faacb-root dulu, lalu helper APK, lalu ketik.
+   - Helper APK: non-root era APK default com.faa.fcbclip.
+     helper APK, lalu ketik.
+   Gagal di mode pilihan = turun otomatis sambil dicatat di log.
 
 TAB HTP (HP -> PC)
 ------------------
