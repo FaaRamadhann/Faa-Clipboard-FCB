@@ -95,6 +95,10 @@ Mode root tidak butuh APK helper dan tidak butuh izin apa pun
    di pengaturan Superuser Magisk).
 3. Paste teks ber-emoji seperti biasa — sisanya otomatis.
 
+Dropdown **Mode** di tab PTH: Otomatis (cascade di atas), atau paksa
+Module (root) / Helper APK / Ketik. Mode paksa yang gagal otomatis
+turun ke mode berikut sambil dicatat di log.
+
 ### Tab PTH (PC → HP)
 
 1. Di HP: tap kolom teks sampai keyboard GBoard muncul (kursor aktif).

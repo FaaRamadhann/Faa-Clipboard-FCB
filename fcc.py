@@ -472,6 +472,12 @@ class PthTab(ttk.Frame):
         ttk.Checkbutton(mid, text="Kirim + Enter di akhir", variable=self.var_enter).pack(side="left")
         self.var_clip = tk.BooleanVar(value=False)
         ttk.Checkbutton(mid, text="Pakai Clipboard PC", variable=self.var_clip).pack(side="left", padx=10)
+        ttk.Label(mid, text="Mode:").pack(side="left", padx=(10, 2))
+        self.cb_mode = ttk.Combobox(mid, state="readonly", width=14,
+                                    values=["Otomatis", "Module (root)",
+                                            "Helper APK", "Ketik"])
+        self.cb_mode.set("Otomatis")
+        self.cb_mode.pack(side="left")
 
         btns = ttk.Frame(self, padding=10)
         btns.pack(fill="x")
@@ -558,8 +564,25 @@ class PthTab(ttk.Frame):
             )
             return
         trail: list[str] = []  # jejak mode yg gagal, utk dialog akhir
+        mode = self.cb_mode.get()
+        if mode == "Ketik":
+            use_faacb = use_helper = False
+        else:
+            need = _needs_helper(text)
+            use_faacb = (mode == "Module (root)"
+                         or (mode == "Otomatis" and need)) \
+                and has_root(serial) and has_faacb(serial)
+            use_helper = (mode == "Helper APK"
+                          or (mode == "Otomatis" and need)) \
+                and helper_available(serial)
+            if mode == "Module (root)" and not use_faacb:
+                self.log("⚠️ Mode Module dipilih tapi root/module tak tersedia, turun mode...")
+                trail.append("faacb-root (tak tersedia)")
+            if mode == "Helper APK" and not use_helper:
+                self.log("⚠️ Mode Helper dipilih tapi APK tak terinstall, turun mode...")
+                trail.append("helper-APK (tak tersedia)")
         # mode faacb-root: tercepat + terkuat (butuh root + module).
-        if _needs_helper(text) and has_root(serial) and has_faacb(serial):
+        if use_faacb:
             self.log("Mode faacb-root (module terdeteksi)...")
             ok, reason, detail = faacb_paste(serial, text, self.log, self.var_enter.get())
             if ok:
@@ -572,7 +595,7 @@ class PthTab(ttk.Frame):
             trail.append(f"faacb-root: {reason}")
             self.log(f"⚠️ mode faacb gagal ({reason}), coba mode helper APK...")
         # mode helper: teks ber-emoji + APK ada -> kirim utuh (tanpa ketik)
-        if _needs_helper(text) and helper_available(serial):
+        if use_helper:
             self.log("Mode helper (emoji terdeteksi, APK tersedia)...")
             ok, reason, detail = helper_paste(serial, text, self.log, self.var_enter.get())
             if ok:
@@ -788,6 +811,10 @@ TAB PTH (PC -> HP)
    diluruskan, emoji dibuang) — detailnya ada di log tab ini.
 6. Punya emoji? Install APK helper (poin APK HELPER di bawah),
    maka teks ber-emoji otomatis dikirim utuh. GBoard tetap.
+7. Dropdown Mode: Otomatis (pilih jalur sendiri: faacb-root dulu,
+   lalu helper APK, lalu ketik), atau paksa Module (root) /
+   Helper APK / Ketik. Gagal di mode paksa = turun otomatis
+   sambil dicatat di log.
 
 TAB HTP (HP -> PC)
 ------------------
