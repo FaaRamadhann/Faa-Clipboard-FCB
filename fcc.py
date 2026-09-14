@@ -14,6 +14,7 @@ Cara pakai:
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+import base64
 import re
 import struct
 import time
@@ -235,6 +236,65 @@ def send_text(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str,
     return (True, "", "", dropped_all)
 
 
+# ================= mode faacb-root (module Magisk, tercepat) =================
+# Syarat: HP rooted + module faacb terinstall. Teks di-base64 (anti masalah
+# quote), di-set via Java helper sebagai root, lalu tombol PASTE (root juga,
+# sehingga lolos INJECT_EVENTS). Prioritas tertinggi bila tersedia.
+
+_ROOT_CACHE: dict[str, bool] = {}
+_FAACB_CACHE: dict[str, bool] = {}
+
+
+def _sh(serial: str, *args: str, timeout=15) -> tuple[bool, str]:
+    return run([ADB, "-s", serial, "shell"] + list(args), timeout=timeout)
+
+
+def has_root(serial: str) -> bool:
+    if serial not in _ROOT_CACHE:
+        ok, out = _sh(serial, "su", "-c", "id")
+        _ROOT_CACHE[serial] = ok and "uid=0" in out
+    return _ROOT_CACHE[serial]
+
+
+def has_faacb(serial: str) -> bool:
+    if serial not in _FAACB_CACHE:
+        ok, out = _sh(serial, "su", "-c", "faacb")
+        _FAACB_CACHE[serial] = "pakai:" in out
+    return _FAACB_CACHE[serial]
+
+
+def faacb_paste(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str, str]:
+    """Kirim teks utuh via faacb (root). Verifikasi baca-balik per potong."""
+    parts = [text[i:i + HELPER_SLICE] for i in range(0, len(text), HELPER_SLICE)] or [""]
+    for pi, part in enumerate(parts):
+        if not part.strip():
+            continue
+        b64 = base64.b64encode(part.encode("utf-8")).decode()
+        ok, out = _sh(serial, "su", "-c", "faacb set " + b64)
+        if not ok:
+            return (False, "faacb",
+                    f"gagal jalanin faacb ({(out or 'tanpa respon')[:150]}). "
+                    "Pastikan module terinstall + Magisk grant root untuk Shell.")
+        if helper_readback(serial) != part:
+            return (False, "faacb",
+                    "clipboard HP tidak berubah. Cek grant root (Magisk) untuk Shell.")
+        log(f"[faacb {pi + 1}/{len(parts)}] clipboard HP terisi, tekan PASTE...")
+        ok, out = _sh(serial, "su", "-c", "faacb paste")
+        if not ok:
+            # fallback: keyevent biasa (butuh INJECT_EVENTS / Security settings)
+            ok, out = run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "279"])
+            if not ok or "Exception" in out or "Error" in out:
+                ok, out = run([ADB, "-s", serial, "shell", "input", "keyevent", "279"])
+        if not ok or "Exception" in out or "Error" in out:
+            return (False, "helper-paste",
+                    "teks SUDAH di clipboard HP, tapi tombol PASTE gagal — "
+                    "tempel manual sekali di HP (tap tahan -> Paste).")
+        log(f"[faacb {pi + 1}/{len(parts)}] OK")
+    if send_enter:
+        run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "66"])
+    return (True, "", "")
+
+
 # ================= mode helper (APK com.faa.fcbclip) =================
 # Untuk teks ber-emoji: taruh utuh ke clipboard HP via broadcast Java API
 # (unicode 100% utuh, tanpa KeyCharacterMap), lalu tekan tombol PASTE.
@@ -260,20 +320,53 @@ def _quote_shell(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def helper_ensure(serial: str, log) -> None:
+    """Beri izin tulis clipboard (sekali saja, permanen). Aman diulang."""
+    log("[helper] memberi izin clipboard (appops, sekali saja)...")
+    run([ADB, "-s", serial, "shell", "appops", "set", HELPER_PKG,
+         "WRITE_CLIPBOARD", "allow"])
+    run([ADB, "-s", serial, "shell", "appops", "set", "--uid", HELPER_PKG,
+         "WRITE_CLIPBOARD", "allow"])
+
+
+def helper_readback(serial: str) -> str:
+    """Baca balik clipboard HP (kode 4). Untuk verifikasi SET menempel."""
+    ok, out = run([ADB, "-s", serial, "shell", "service call clipboard",
+                   "4", "s16", "com.android.shell", "i32", "0"])
+    if not ok or "Parcel" not in out:
+        return ""
+    words = re.findall(r"\b[0-9a-fA-F]{8}\b", out)
+    if not words or words[0] != "00000000":
+        return ""
+    return _extract_clip_text(_parcel_bytes(out))[:4000]
+
+
+def _broadcast_once(serial: str, part: str) -> bool:
+    ok, out = run([ADB, "-s", serial, "shell", "am", "broadcast",
+                   "-a", HELPER_ACTION, "-n", HELPER_CMP,
+                   "-e", "text", _quote_shell(part)])
+    return ok and "FCB-OK" in out
+
+
 def helper_paste(serial: str, text: str, log, send_enter: bool) -> tuple[bool, str, str]:
-    """Kirim teks utuh (emoji ok) via APK helper + tombol PASTE per potong."""
+    """Kirim teks utuh (emoji ok) via APK helper + tombol PASTE per potong.
+    Tiap potong DIVERIFIKASI baca-balik; kalau tidak nempel -> beri izin,
+    force-stop, coba sekali lagi. Gagal dua kali = lapor jujur."""
     parts = [text[i:i + HELPER_SLICE] for i in range(0, len(text), HELPER_SLICE)] or [""]
     for pi, part in enumerate(parts):
         if not part.strip():
             continue
-        ok, out = run([ADB, "-s", serial, "shell", "am", "broadcast",
-                       "-a", HELPER_ACTION, "-n", HELPER_CMP,
-                       "-e", "text", _quote_shell(part)])
-        if not ok or "FCB-OK" not in out:
-            return (False, "helper-set",
-                    "APK helper tidak merespon (FCB-OK tidak ada). "
-                    "Pastikan APK terinstall + app pernah dibuka sekali. "
-                    f"Respon: {(out or '(kosong)')[:200]}")
+        _broadcast_once(serial, part)
+        if helper_readback(serial) != part:
+            # tidak nempel (penolakan diam-diam MIUI?) -> beri izin + ulangi
+            helper_ensure(serial, log)
+            run([ADB, "-s", serial, "shell", "am", "force-stop", HELPER_PKG])
+            if not _broadcast_once(serial, part) or helper_readback(serial) != part:
+                return (False, "helper-set",
+                        "clipboard HP menolak ditulis walau izin sudah diberi. "
+                        "Cek manual: Settings > Apps > FCB Helper > Permissions "
+                        "> Clipboard. Atau kunci app + battery No restrictions "
+                        "agar MIUI tidak mematikan prosesnya.")
         log(f"[helper {pi + 1}/{len(parts)}] clipboard HP terisi, tekan PASTE...")
         ok, out = run([ADB, "-s", serial, "shell", "input", "keyboard", "keyevent", "279"])
         if not ok or "Exception" in out or "Error" in out:
@@ -464,6 +557,20 @@ class PthTab(ttk.Frame):
                 "4. Cek popup 'Allow USB debugging?' di HP -> Allow"
             )
             return
+        trail: list[str] = []  # jejak mode yg gagal, utk dialog akhir
+        # mode faacb-root: tercepat + terkuat (butuh root + module).
+        if _needs_helper(text) and has_root(serial) and has_faacb(serial):
+            self.log("Mode faacb-root (module terdeteksi)...")
+            ok, reason, detail = faacb_paste(serial, text, self.log, self.var_enter.get())
+            if ok:
+                self.log("✅ Selesai via faacb-root (emoji utuh).")
+                return
+            if reason == "helper-paste":
+                self.log(f"⚠️ {detail}")
+                messagebox.showinfo("Sudah di clipboard HP", detail)
+                return
+            trail.append(f"faacb-root: {reason}")
+            self.log(f"⚠️ mode faacb gagal ({reason}), coba mode helper APK...")
         # mode helper: teks ber-emoji + APK ada -> kirim utuh (tanpa ketik)
         if _needs_helper(text) and helper_available(serial):
             self.log("Mode helper (emoji terdeteksi, APK tersedia)...")
@@ -475,6 +582,7 @@ class PthTab(ttk.Frame):
                 self.log(f"⚠️ {detail}")
                 messagebox.showinfo("Sudah di clipboard HP", detail)
                 return
+            trail.append(f"helper-APK: {reason}")
             self.log(f"⚠️ mode helper gagal ({reason}), lanjut mode ketik biasa...")
         ok, reason, detail, dropped = send_text(serial, text, self.log, self.var_enter.get())
         if ok:
@@ -492,6 +600,8 @@ class PthTab(ttk.Frame):
                 )
             return
         self.log(f"❌ Gagal ({reason}). Detail asli dari HP: {detail}")
+        if trail:
+            self.log("Jejak mode: " + " -> ".join(trail) + " -> ketik")
         if reason == "security":
             messagebox.showerror(
                 "Izin inject ditolak HP",
@@ -514,8 +624,6 @@ class PthTab(ttk.Frame):
             )
         elif reason == "adb-missing":
             messagebox.showerror("ADB hilang", detail)
-        elif reason == "helper-set":
-            messagebox.showerror("APK helper tidak merespon", detail)
         elif reason == "badchar":
             messagebox.showwarning(
                 "Ada karakter yg tidak bisa diketik",
@@ -703,6 +811,12 @@ disusul tombol PASTE otomatis. GBoard tidak berubah sama sekali.
 3. Tab PTH otomatis pakai mode helper kalau teks mengandung emoji
    dan APK terdeteksi. Tanpa APK: teks tetap terkirim minus emoji
    (dilaporkan di log + dialog).
+
+MODE FAACB-ROOT (tercepat, butuh HP root + module Magisk faacb)
+---------------------------------------------------------------
+Urutan otomatis tab PTH: faacb-root dulu, lalu helper APK, lalu ketik.
+Mode root tidak butuh APK helper, tidak butuh izin (jalan sebagai root),
+dan lolos INJECT_EVENTS. Terdeteksi otomatis tiap paste (di-cache per sesi).
 
 ARTI ERROR (TAB PTH)
 --------------------

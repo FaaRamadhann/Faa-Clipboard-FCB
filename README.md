@@ -84,6 +84,17 @@ disusul tombol PASTE otomatis. GBoard tidak berubah sama sekali.
    dan APK terdeteksi. Tanpa APK: teks tetap terkirim minus emoji
    (dilaporkan di log + dialog).
 
+### Mode faacb-root (tercepat, HP root + module Magisk faacb)
+
+Urutan otomatis tab PTH: **faacb-root dulu, helper APK, terakhir ketik**.
+Mode root tidak butuh APK helper dan tidak butuh izin apa pun
+(jalan sebagai root, lolos INJECT_EVENTS). Terdeteksi otomatis tiap paste.
+
+1. Install module `faacb` (lihat repo FCB-Magisk), reboot.
+2. Beri root sekali untuk Shell saat Magisk meminta (atau permanen
+   di pengaturan Superuser Magisk).
+3. Paste teks ber-emoji seperti biasa — sisanya otomatis.
+
 ### Tab PTH (PC → HP)
 
 1. Di HP: tap kolom teks sampai keyboard GBoard muncul (kursor aktif).
